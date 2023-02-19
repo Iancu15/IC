@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "debug": "^4.3.4",
+    "savjeecoin": "^1.0.1"
+  }
+}

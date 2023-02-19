@@ -1,0 +1,131 @@
+Ex1
+
+Initial m-am pus sa inteleg codul (server.py) si sa vad ce parametrii are.
+Am vazut ca foloseste un IV random ceea ce e foarte bine, insa pentru criptare
+si integritate foloseste AES in mod ECB care nu e sigur semantic. In modul
+ECB fiecare bloc e criptat cu AES, astfel 2 blocuri egale vor produce
+acelasi ciphertext desi sunt in pozitii diferite intr-un mesaj sau sunt
+in mesaje diferite. Vom vedea daca ne va ajuta asta la ceva.
+
+In functia get_guest_token() cripteaza GUEST_NAME-ul care e Anonymous.
+Daca ne uitam in functia de criptare vedem ca se cripteaza IV-ul (good practice)
+si apoi pentru criptare se face XOR intre mesaj si IV-ul criptat si nu se mai
+trece prin AES (bad practice). Apoi se adauga un SERVER_PUBLIC_BANNER in clar
+(bad practice) si apoi tag-ul pentru integritate (good practice daca tag-ul
+e calculat bine). Daca ne uitam in functia get_Integrity() vedem ca se adauga
+un numar de 0-uri la plaintext, pentru padding presupun, un mod destul de lazy
+totusi de a face rost de padding. Si se ia un numar INTEGRITY_LEN din sirul
+criptat format ce va fi folosit ca tag, daca INTEGRITY_LEN este destul de mic
+se poate face brute force pe el.
+
+Apoi daca ne uitam in functia de decriptare vedem ca se recalculeaza IV-ul
+criptat si se face rost de cipher, SERVER_PUBLIC_BANNER si tag din token.
+Apoi plaintext-ul se face rost facand XOR dintre IV-ul criptat si cipher.
+Daca s-a modificat SERVER_PUBLIC_BANNER sau tag-ul nu e bun, atunci intoarce
+altceva decat plaintext, aratand niste probleme de integritate.
+
+Pentru login se citeste cipher text-ul, apoi se verifica ca token-ul e mai mare
+de 16 (acum stim ca token-ul trebuie sa fie cel mult 16) si se decripteaza cu functia
+discutata mai sus. Apoi afiseaza niste erori daca am compromis SERVER_PUBLIC_BANNER
+sau tag-ul si nu ne afiseaza nimic interesant daca datele noastre de login sunt
+GUEST_NAME. Totusi afiseaza un FLAG necunoscut (ce ne intereseaza sa aflam) pentru
+cineva cu credentialele Ephvuln. Acum stim ce avem de facut, trebuie sa formam
+un payload ce are Ephvuln criptat + SERVER_PUBLIC_BANNER + tag valid pentru Ephvuln.
+Totusi inainte de asta ar trebui sa aflam cine este SERVER_PUBLIC_BANNER si
+INTEGRITY_LEN, pentru asta vom apela la server-ul concret. In loc-ul flag-ului vom
+pune un mesaj dummy, eu am ales sa pun 'zelda'.
+
+Apoi m-am pus sa dau query-uri la serverul real. Cum SERVER_PUBLIC_BANNER este
+pus in clar si e acelasi in toate token-urile, e destul sa dau query pentru 2 token-uri
+ca sa vad un sir de caractere egal. Sunt totusi sanse mici ca fix inainte sau dupa
+SERVER_PUBLIC_BANNER un octet sa fie egal intre token-uri si sa estimez gresit
+SERVER_PUBLIC_BANNER. Asa ca pentru siguranta dau query la 3 token-uri. O sa
+ma folosesc de skel.py.
+
+Cele 3 token-uri sunt:
+b'\x8d\xa6\x99\xc2\x82d\x02\x0c\x07\x01su\xa7\xe5\xf9\xa1'
+b'\x9f\xf8VH2\x03\xd7\xc3\xac\x01su\xa7\xe5\xf9\x83'
+b'v\x14\x12\xe8%\x0f\xb1\xb6\xff\x01su\xa7\xe5\xf9\xa1'
+
+Se vede ca in toate 3 se repeta sirul \x01su\xa7\xe5\xf9, asa ca ne-am gasit astfel
+SERVER_PUBLIC_BANNER. Stim ca dupa SERVER_PUBLIC_BANNER este adaugat tag-ul, care in
+fiecare token se vede ca este 1 octet, astfel INTEGRITY_LEN va fi 1. Am gasit
+parametrii, acum putem incerca sa spargem algoritmul pe local. O sa ma folosesc
+tot de skel.py, dar cu Local pe True.
+
+Iau token-ul de la server, apoi iau cipher-ul si secret-ul din token. Folosesc
+fix codul din sursa de la server pentru asta. Tag-ul nu il iau ca nu ma ajuta cu
+nimic, o sa am alt tag. Apoi stiu ca cipher-ul e facut ca XOR intre IV-ul criptat
+si plaintext-ul. Astfel pot face rost de IV-ul criptat facand XOR intre plaintext
+(GUEST_NAME-ul pe care il stiu) si mesajul criptat pe care il am din token. Apoi
+pot folosi IV-ul criptat ca sa fac rost de cipher-ul pentru mesajul Ephvuln.
+
+Am cipher-ul si am SERVER_PUBLIC_BANNER, tot ce mai am nevoie e tag-ul. Norocul
+meu e ca tag-ul e de un singur octet asa ca pot sa ii dau brute force, trecand
+prin toate cele 256 de valori si incercandu-le pe fiecare in payload. Daca gasesc
+'Secret' in cod atunci afisez raspunsul, ruland pe local o sa primesc Secret: zelda.
+Acum trebuie sa rulez acelasi cod pe server-ul propriu zis, singura diferenta e ca
+am lasat cum era in comentariu if "CTF" in response: in loc de "Secret".
+
+Ruland skel.py am urmatorul output:
+[+] Opening connection to 141.85.224.117 on port 1337: Done
+[*] Found flag: Secret: CTF{Ez_T4g_Cr4ftyng}
+[*] Closed connection to 141.85.224.117 port 1337
+
+Stiu astfel ca secretul e Ez_T4g_Cr4ftyng.
+
+Ex2
+
+Initial am intrat in cipher_server si m-am asigurat sa am Local pe True si am pus o
+cheie de 12 octeti sa fie - str2hex('abcdefghjklm').
+
+Task1
+
+Diferentialul DeltaX l-am ales b'10110111', am zis sa nu pun chiar b'11111111' si
+totusi sa las destui de 1 cat sa fie un diferential semnificativ. L1 am decis sa-l
+fac pe baza lui v si sa fie din litere cu minuscula. Am o functie get_chr care pe baza
+lui v produce o litera intre 'a' si 'z'. Totusi nu puteam sa repet litera asta de 4 ori
+ca se repeta pentru fiecare v din 26 in 26 L1-ul. Asa ca la 2 litere cu get_chr(v) am
+adaugat 2 litere get_chr(v + v // 26), ideea fiind ca astfel acei L1 facuti pentru v
+cu acelasi mod sa fie diferiti pe baza acestor 2 litere. Asta se intampla pentru ca v // 26
+o sa fie diferit in functie de a cata repetare este. Cum sunt 256 de v, avem 256 / 26
+= 9,... si anume 9 repetari. Adaugand v // 26 ne asiguram de 26 > 9 de combinatii diferite
+pentru aceeasi repetare, astfel incat toti L1 generati pe baza lui v vor fi diferiti.
+
+R l-am ales drept un numar random si il folosesc la ambele mesaje conform enuntului din
+pdf. L2-ul aferent celui de-al doilea mesaj il calculez facand XOR intre L1 si 4 octeti
+repetati de diferential. Fac rost de c1 si c2 de la server. Cred ca in mod eronat era
+pus in schelet initial icc_enc_server(key, m1, False), cand icc_enc_server nu are un astfel
+de camp (key) si nici nu ar avea sens ca server-ul ar trebui sa aiba cheia, eu nu o stiu complet.
+
+Task2
+
+Pentru fiecare octet din cheie voi parcurge toate posibilitatile de octet de la 0 la 255.
+Pentru fiecare pereche (c1, c2) voi calcula E'(k3,c1) si E'(k3,c2), voi face XOR intre ele facand
+astfel rost de diferentialul deltaY. Daca diferentialul deltaY de care am facut rost este
+egal cu deltaX, atunci incrementez un contor number_of_matches in care tin cont de numarul
+de perechi pentru care cheia respectiva a calculat corect starea intermediara. Optiunea
+de octet cu cel mai mare numar de potriviri va fi considerat octetul corect. In cazul nostru
+octetul respectiv are numarul maxim de potriviri (256) si nu exista vreun alt octet cu acelasi
+numar de potriviri, nici macar nu se apropie de rezultat restul de optiuni.
+
+Starea intermediara o calculez luand octetul corespunzator din L3 si octetul corespunzator din R3
+in functie de octetul din k3 pe care il calculez, pentru octetul b din k3 voi lua octetul b din L3 si R3
+(b de la 0 la 3). Octetul b din L3 il iau cu slice-ul b*2:b*2+2. Cum L3 si R3 sunt in hexstrings, octetii
+vor fi reprezentati de 2 caractere. Astfel ca slice-ul trebuie sa fie de lungime 2, motiv pentru
+care adaug acel +2. Si de asemenea slice-ul incepe de la b*2 din aceleasi considerente. R3 va fi slice-ul
+b*2+8:b*2+10 din ciphertext. R3 se afla dupa L3 care este de lungime 4 octeti si anume 8 caractere in hexa,
+motiv pentru care am offset-ul aditional de 8 la slice fata de L3.
+
+Apoi urmez formula. Fac XOR intre octetul din L3 si cel din k3, apoi trebuie sa transform din hexstring in
+hexa pentru ca sbox-ul are indexi int-uri. Apoi iau din sbox valoarea corespunzatoare si o transform inapoi
+in hexstring (sbox-ul are elemente int-uri). Intorc XOR intre octetul din R3 si valorea primita de la sbox,
+aceasta va fi starea intermediara ce trebuia calculata.
+
+Task3
+
+Acum ca am k3 si cum stiu k1 si k2, voi avea toata cheia pe care o pot folosi sa decriptez ciphertext-ul de
+interes. Pana acum am folosit o cheie aleatoare in cipher_server ca am rulat pe local, aceasta nu imi va oferi
+rezultatele dorite. Asa ca pot rula pe server-ul propriu-zis si sa vad care-i cheia si care-i mesajul decriptat.
+Dupa rulare descoperim cheia k3 12345678, avand astfel cheia completa aabbccddaabbccdd12345678. Pe baza ei
+se decripteaza si se ajunge la mesajul Welldone.
